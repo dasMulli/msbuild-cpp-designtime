@@ -2,6 +2,7 @@
 using Microsoft.Build.Evaluation;
 using Microsoft.Build.Execution;
 using Microsoft.Build.Framework;
+using Microsoft.Build.Locator;
 using Microsoft.Build.Logging;
 using Microsoft.Build.Utilities;
 using System;
@@ -20,16 +21,25 @@ namespace ConsoleApp
     {
         static void Main(string[] args)
         {
+            var vsVersion = MSBuildLocator.QueryVisualStudioInstances().First(i => i.Version.Major == 15);
+            MSBuildLocator.RegisterInstance(vsVersion);
+            // Call method that will now resolve msbuild tools
+            Stuff();
+        }
+
+        public static void Stuff()
+        {
+            // this can't be in Main() because MSBuildLocator stuff needs to happen before JITing this
             var logBuilder = new StringBuilder();
             var logger = new ConsoleLogger(LoggerVerbosity.Normal, x => logBuilder.Append(x), null, null);
 
             // TODO: Fix this
-            var projectPath = @"C:\Users\Joao\source\repos\MsBuildCpp\src\LockTools\LockTools.vcxproj";
+            var projectPath = Path.GetFullPath(@"..\LockTools\LockTools.vcxproj");
             var project = GetProject(projectPath, logger);
 
             var projectInstance = project.CreateProjectInstance();
 
-            var requestData = new BuildRequestData(projectInstance, new[] { "Build" });
+            var requestData = new BuildRequestData(projectInstance, new[] { "Build", "BuiltProjectOutputGroup" });
 
             var par = new BuildParameters()
             {
@@ -46,17 +56,15 @@ namespace ConsoleApp
             }
 
             // Why is this empty on 15.0? - Investigate
-            var targetResult = buildResult.ResultsByTarget["Build"];
+            var targetResult = buildResult.ResultsByTarget["BuiltProjectOutputGroup"];
             var artifact = targetResult.Items.Single().ToString();
             var artifactPdb = Path.ChangeExtension(artifact, ".pdb");
+            Console.WriteLine("Compiled to " + artifact);
         }
 
         public static Project GetProject(string projectPath, ConsoleLogger logger)
         {
-            string toolsPath = GetToolsPath();
-            Dictionary<string, string> globalProperties = GetGlobalProperties(projectPath, toolsPath);
-            ProjectCollection projectCollection = new ProjectCollection(globalProperties);
-            projectCollection.AddToolset(new Toolset(ToolLocationHelper.CurrentToolsVersion, toolsPath, projectCollection, string.Empty));
+            var projectCollection = new ProjectCollection();
             projectCollection.RegisterLogger(logger);
             return projectCollection.LoadProject(projectPath);
         }
